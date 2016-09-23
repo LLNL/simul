@@ -47,6 +47,7 @@ char hostname[1024];
 int verbose;
 int throttle = 1;
 struct timeval t1, t2;
+static char version[] = "1.14";
 
 #ifdef __GNUC__
    /* "inline" is a keyword in GNU C */
@@ -532,6 +533,7 @@ void simul_read(int shared) {
     char buf[1024];
     char *filename;
     int i = 0;
+    int retry = 100;
 
     begin("setup");
     filename = create_files("simul_read", 1024, shared);
@@ -546,11 +548,13 @@ void simul_read(int shared) {
 
     begin("test");
     /* All read simultaneously */
-    for (i = 1024; i > 0; i -= fin) {
+    for (i = 1024; (i > 0) && (retry > 0); i -= fin, retry--) {
 	if ((fin = read(fd, buf, (size_t)i)) == -1) {
 	    FAIL("read failed");
 	}
     }
+    if( (retry == 0) && (i > 0) )
+	FAIL("read exceeded retry count");
     end("test");
 
     begin("cleanup");
@@ -570,6 +574,7 @@ void simul_write(int shared) {
     ssize_t fin;
     char *filename;
     int i = 0;
+    int retry = 100;
 
     begin("setup");
     filename = create_files("simul_write", size * sizeof(int), shared);
@@ -587,11 +592,13 @@ void simul_write(int shared) {
 
     begin("test");
     /* All write simultaneously */
-    for (i = sizeof(int); i > 0; i -= fin) {
+    for (i = sizeof(int); (i > 0) && (retry > 0); i -= fin, retry--) {
 	if ((fin = write(fd, &rank, (size_t)i)) == -1) {
 	    FAIL("write failed");
 	}
     }
+    if( (retry == 0) && (i > 0) )
+	FAIL("write exceeded retry count");
     end("test");
 
     begin("cleanup");
@@ -999,6 +1006,7 @@ void print_help(int testcnt) {
     int i;
 
     if (rank == 0) {
+	printf("simul-%s\n", version);
 	printf("Usage: simul [-h] -d <testdir> [-f firsttest] [-l lasttest]\n");
 	printf("             [-n #] [-N #] [-i \"4,7,13\"] [-e \"6,22\"] [-s]\n");
 	printf("             [-v] [-V #]\n");
