@@ -47,7 +47,7 @@ char hostname[1024];
 int verbose;
 int throttle = 1;
 struct timeval t1, t2;
-static char version[] = "1.15";
+static char version[] = "1.16";
 
 #ifdef __GNUC__
    /* "inline" is a keyword in GNU C */
@@ -95,13 +95,14 @@ inline void begin(char *str) {
 }
 
 inline void end(char *str) {
-    float elapsed;
+    double elapsed;
 
     MPI_Barrier(MPI_COMM_WORLD);
     if (verbose > 0 && rank == 0) {
 	gettimeofday(&t2, NULL);
-	elapsed = (t2.tv_sec + ((float)t2.tv_usec/1000000)) -
-	    (t1.tv_sec + ((float)t1.tv_usec/1000000));
+	elapsed = ((((t2.tv_sec - t1.tv_sec) * 1000000L)
+		    + t2.tv_usec) - t1.tv_usec)
+ 		  / (double)1000000;
 	if (elapsed >= 60) {
 	    fprintf(stdout, "%s:\tFinished %-15s(%.2f min)\n",
 		    timestamp(), str, elapsed / 60);
