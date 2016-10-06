@@ -47,7 +47,7 @@ char hostname[1024];
 int verbose;
 int throttle = 1;
 struct timeval t1, t2;
-static char version[] = "1.14";
+static char version[] = "1.15";
 
 #ifdef __GNUC__
    /* "inline" is a keyword in GNU C */
@@ -925,6 +925,115 @@ void simul_link_to_many(int shared) {
     end("cleanup");
 }
 
+void simul_fcntl_lock(int shared) {
+    int rc, fd;
+    char *filename;
+    struct flock sf_lock = {
+        .l_type = F_WRLCK,
+	.l_whence = SEEK_SET,
+	.l_start = 0,
+	.l_len = 0
+    };
+    struct flock sf_unlock = {
+        .l_type = F_UNLCK,
+	.l_whence = SEEK_SET,
+	.l_start = 0,
+	.l_len = 0
+    };
+
+    begin("setup");
+    filename = create_files("simul_fcntl", 0, shared);
+    MPI_Barrier(MPI_COMM_WORLD);
+    /* All open the file one at a time */
+    Seq_begin(MPI_COMM_WORLD, throttle);
+    if ((fd = open(filename, O_RDWR)) == -1) {
+	FAIL("open failed");
+    }
+    Seq_end(MPI_COMM_WORLD, throttle);
+    end("setup");
+
+    begin("test");
+    /* All lock the file(s) simultaneously */
+    rc = fcntl(fd, F_SETLK, &sf_lock);
+    if (!shared) {
+	if (rc == -1) {
+            if (errno == ENOSYS) {
+                if (rank == 0) {
+                    fprintf(stdout, "WARNING: fcntl locking not supported.\n");
+                    fflush(stdout);
+                }
+            } else {
+                FAIL("fcntl lock failed");
+            }
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+    } else {
+	int saved_errno = errno;
+	int *rc_vec, *er_vec, i;
+	int fail = 0;
+	int pass = 0;
+        int nosys = 0;
+	if (rank == 0) {
+	    if ((rc_vec = (int *)malloc(sizeof(int)*size)) == NULL)
+		FAIL("malloc failed");
+	    if ((er_vec = (int *)malloc(sizeof(int)*size)) == NULL)
+		FAIL("malloc failed");
+	}
+	MPI_Gather(&rc, 1, MPI_INT, rc_vec, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Gather(&saved_errno, 1, MPI_INT, er_vec, 1, MPI_INT, 0,
+		   MPI_COMM_WORLD);
+	if (rank == 0) {
+	    for (i = 0; i < size; i++) {
+	        if (rc_vec[i] == -1) {
+                    if (er_vec[i] == ENOSYS) {
+                        nosys++;
+                    } else if (er_vec[i] != EACCES && er_vec[i] != EAGAIN) {
+			errno = er_vec[i];
+			FAIL("fcntl failed as expected, but with wrong errno");
+		    }
+		    fail++;
+		} else {
+		    pass++;
+		}
+	    }
+            if (nosys == size) {
+                fprintf(stdout, "WARNING: fcntl locking not supported.\n");
+                fflush(stdout);
+            } else if (!((pass == 1) && (fail == size-1))) {
+		fprintf(stdout,
+			"%s: FAILED in simul_fcntl_lock", timestamp());
+		if (pass > 1)
+		    fprintf(stdout,
+			    "too many fcntl locks succeeded (%d).\n", pass);
+		else
+		    fprintf(stdout,
+			    "too many fcntl locks failed (%d).\n", fail);
+		fflush(stdout);
+		MPI_Abort(MPI_COMM_WORLD, 1);
+	    }
+	    free(rc_vec);
+	    free(er_vec);
+	}
+    }
+    end("test");
+
+    begin("cleanup");
+    /* All close the file one at a time */
+    Seq_begin(MPI_COMM_WORLD, throttle);
+    if (!shared || rank == 0) {
+	    rc = fcntl(fd, F_SETLK, &sf_unlock);
+            if (rc == -1 && errno != ENOSYS)
+                FAIL("fcntl unlock failed");
+    }
+    if (close(fd) == -1) {
+	FAIL("close failed");
+    }
+    Seq_end(MPI_COMM_WORLD, throttle);
+    MPI_Barrier(MPI_COMM_WORLD);
+    remove_files("simul_fcntl", shared);
+    end("cleanup");
+}
+
 struct test {
     char *name;
     void (*function) (int);
@@ -953,6 +1062,7 @@ static struct test testlist[] = {
     {"readlink", simul_readlink},
     {"link to one file", simul_link_to_one},
     {"link to a file per process", simul_link_to_many},
+    {"fcntl locking", simul_fcntl_lock},
     {0}
 };
 
