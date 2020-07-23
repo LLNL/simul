@@ -47,7 +47,7 @@ char hostname[1024];
 int verbose;
 int throttle = 1;
 struct timeval t1, t2;
-static char version[] = "1.16";
+static char version[] = "1.17";
 
 #ifdef __GNUC__
    /* "inline" is a keyword in GNU C */
@@ -209,13 +209,15 @@ char *create_files(char *prefix, int filesize, int shared) {
 void remove_files(char *prefix, int shared) {
     char filename[1024];
     int i;
+    int rc;
 
     /* Process 0 removes the file(s) */
     if (rank == 0) {
 	for (i = 0; i < (shared ? 1 : size); i++) {
 	    sprintf(filename, "%s/%s.%d", testdir, prefix, i);
-	    /*printf("Removing file %s\n", filename); fflush(stdout);*/
-	    if (unlink(filename) == -1) {
+	    rc = unlink(filename);
+	    /* printf("Removed file %s rc %d\n", filename, rc); fflush(stdout); */
+	    if (rc == -1) {
 		FAIL("unlink failed");
 	    }
 	}
@@ -856,37 +858,41 @@ void simul_link_to_one(int shared) {
     int rc, i;
     char *filename;
     char linkname[1024];
+    char prefix[1024];
 
     begin("setup");
-    if (shared)
-	sprintf(linkname, "%s/simul_link.0", testdir);
-    else
-	sprintf(linkname, "%s/simul_link.%d", testdir, rank);
-    if (rank == 0) {
-	for (i = 0; i < (shared ? 1 : size); i++) {
-	    char buf[MAX_FILENAME_LEN];
-	    sprintf(buf, "%s/simul_link.%d", testdir, i);
-	    remove_file_or_dir(buf);
-	}
+    if (shared) {
+		strncpy(prefix, "simul_link.one.shared", sizeof(prefix));
+		sprintf(linkname, "%s/%s.0", testdir, prefix);
+    } else {
+		strncpy(prefix, "simul_link.one.notshared", sizeof(prefix));
+		sprintf(linkname, "%s/%s.%d", testdir, prefix, rank);
     }
-    filename = create_files("simul_link_target", 0, SHARED);
+    if (rank == 0) {
+		for (i = 0; i < (shared ? 1 : size); i++) {
+			char buf[MAX_FILENAME_LEN];
+			sprintf(buf, "%s/%s.%d", prefix, testdir, i);
+			remove_file_or_dir(buf);
+		}
+    }
+    filename = create_files("simul_link_target.one", 0, SHARED);
     end("setup");
 
     begin("test");
     /* All create the hard links simultaneously */
     rc = link(filename, linkname);
     if (!shared) {
-	if (rc == -1) {
-	    FAIL("link failed");
-	}
+		if (rc == -1) {
+		    FAIL("link failed");
+		}
     } else {
-	check_single_success("simul_link_to_one", rc, -1);
+		check_single_success("simul_link_to_one", rc, -1);
     }
     end("test");
 
     begin("cleanup");
-    remove_files("simul_link_target", SHARED);
-    remove_files("simul_link", shared);
+    remove_files("simul_link_target.one", SHARED);
+    remove_files(prefix, shared);
     end("cleanup");
 }
 
@@ -902,12 +908,12 @@ void simul_link_to_many(int shared) {
 	return;
     }
     begin("setup");
-    filename = create_files("simul_link", 0, shared);
-    sprintf(linkname, "%s/simul_link_target.%d", testdir, rank);
+    filename = create_files("simul_link.many", 0, shared);
+    sprintf(linkname, "%s/simul_link_target.many.%d", testdir, rank);
     if (rank == 0) {
 	for (i = 0; i < size; i++) {
 	    char buf[MAX_FILENAME_LEN];
-	    sprintf(buf, "%s/simul_link_target.%d", testdir, i);
+	    sprintf(buf, "%s/simul_link_target.many.%d", testdir, i);
 	    remove_file_or_dir(buf);
 	}
     }
@@ -921,8 +927,8 @@ void simul_link_to_many(int shared) {
     end("test");
 
     begin("cleanup");
-    remove_files("simul_link", shared);
-    remove_files("simul_link_target", !SHARED);
+    remove_files("simul_link.many", shared);
+    remove_files("simul_link_target.many", !SHARED);
     end("cleanup");
 }
 
