@@ -86,7 +86,7 @@ char *timestamp() {
     return datestring;
 }
 
-inline void begin(char *str) {
+static inline void begin(char *str) {
     if (verbose > 0 && rank == 0) {
         gettimeofday(&t1, NULL);
         fprintf(stdout, "%s:\tBeginning %s\n", timestamp(), str);
@@ -94,7 +94,7 @@ inline void begin(char *str) {
     }
 }
 
-inline void end(char *str) {
+static inline void end(char *str) {
     double elapsed;
 
     MPI_Barrier(MPI_COMM_WORLD);
